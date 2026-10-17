@@ -9,17 +9,28 @@ local FOLDER_NAME = 'DhabWild'
 local PANIC_KEY = Enum.KeyCode.End
 local TOGGLE_KEYS = { [Enum.KeyCode.P] = true, [Enum.KeyCode.RightShift] = true }
 
--- THEME
-local T = {
-	bg = Color3.fromRGB(18, 18, 26),
-	panel = Color3.fromRGB(28, 28, 40),
-	item = Color3.fromRGB(40, 40, 58),
-	accent = Color3.fromRGB(110, 90, 255),
-	on = Color3.fromRGB(60, 200, 120),
-	text = Color3.fromRGB(240, 240, 250),
-	dim = Color3.fromRGB(150, 150, 170),
-	danger = Color3.fromRGB(220, 60, 70),
+-- THEMES
+local function C(r, g, b) return Color3.fromRGB(r, g, b) end
+local THEME_ORDER = {
+	'Slate', 'Midnight', 'Graphite', 'Ocean', 'Forest', 'Rose',
+	'Nord', 'Mocha', 'Lavender', 'Dracula', 'Sand', 'Paper',
 }
+local Themes = {
+	Slate    = { bg = C(24,26,32),   panel = C(32,35,43),   item = C(44,48,58),   accent = C(112,140,190), text = C(226,229,236), dim = C(140,146,160), on = C(104,170,140), danger = C(190,90,95) },
+	Midnight = { bg = C(14,16,26),   panel = C(21,24,38),   item = C(31,35,54),   accent = C(100,120,200), text = C(220,224,240), dim = C(125,132,160), on = C(90,165,150),  danger = C(185,85,100) },
+	Graphite = { bg = C(20,20,20),   panel = C(29,29,29),   item = C(42,42,42),   accent = C(150,150,150), text = C(230,230,230), dim = C(135,135,135), on = C(120,165,130), danger = C(185,90,90) },
+	Ocean    = { bg = C(14,28,36),   panel = C(20,40,50),   item = C(30,56,68),   accent = C(70,160,180),  text = C(222,238,242), dim = C(125,160,170), on = C(80,175,145),  danger = C(190,95,95) },
+	Forest   = { bg = C(20,28,24),   panel = C(27,38,32),   item = C(38,52,44),   accent = C(110,165,120), text = C(226,236,228), dim = C(135,155,140), on = C(120,180,120), danger = C(185,95,90) },
+	Rose     = { bg = C(32,22,28),   panel = C(43,30,38),   item = C(58,42,52),   accent = C(205,130,155), text = C(240,228,234), dim = C(165,140,152), on = C(130,175,145), danger = C(200,85,95) },
+	Nord     = { bg = C(46,52,64),   panel = C(59,66,82),   item = C(67,76,94),   accent = C(136,192,208), text = C(236,239,244), dim = C(160,170,185), on = C(163,190,140), danger = C(191,97,106) },
+	Mocha    = { bg = C(30,24,22),   panel = C(41,33,30),   item = C(56,46,42),   accent = C(196,148,100), text = C(236,226,218), dim = C(160,145,135), on = C(140,170,120), danger = C(188,92,85) },
+	Lavender = { bg = C(28,25,38),   panel = C(38,34,52),   item = C(52,47,70),   accent = C(158,140,205), text = C(234,230,244), dim = C(150,144,175), on = C(120,175,150), danger = C(195,90,110) },
+	Dracula  = { bg = C(40,42,54),   panel = C(52,55,70),   item = C(68,71,90),   accent = C(189,147,249), text = C(248,248,242), dim = C(145,150,180), on = C(80,200,120),  danger = C(255,95,95) },
+	Sand     = { bg = C(236,230,218), panel = C(246,242,233), item = C(224,216,201), accent = C(170,125,80), text = C(55,50,44),    dim = C(130,122,110), on = C(95,150,105),  danger = C(190,85,80) },
+	Paper    = { bg = C(238,240,244), panel = C(248,249,251), item = C(226,229,236), accent = C(90,120,180), text = C(40,44,54),    dim = C(120,126,140), on = C(80,155,120),  danger = C(195,80,85) },
+}
+local currentTheme = 'Slate'
+local theme = Themes[currentTheme]
 
 -- CONNECTION TRACKING (so panic can kill everything)
 local connections = {}
@@ -30,16 +41,33 @@ local function bind(signal, fn)
 	return c
 end
 
+-- THEME REGISTRY
+local updaters = {}
+local function tw(obj, props, time)
+	TweenService:Create(obj, TweenInfo.new(time or 0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props):Play()
+end
+local function reg(fn)
+	table.insert(updaters, fn)
+	fn(theme, true)
+end
+local function applyTheme(name)
+	currentTheme = name
+	theme = Themes[name]
+	for _, fn in ipairs(updaters) do fn(theme, false) end
+end
+local function set(obj, props, instant)
+	if instant then
+		for k, v in pairs(props) do obj[k] = v end
+	else
+		tw(obj, props)
+	end
+end
+
 -- ESP
 local ESP = {
 	enabled = false,
 	colorIndex = 1,
-	colors = {
-		Color3.fromRGB(255, 170, 0),
-		Color3.fromRGB(0, 255, 120),
-		Color3.fromRGB(0, 170, 255),
-		Color3.fromRGB(255, 60, 60),
-	},
+	colors = { C(255,170,0), C(0,255,120), C(0,170,255), C(255,60,60) },
 	objects = {},
 	conns = {},
 }
@@ -224,58 +252,56 @@ local function corner(inst, r)
 	return c
 end
 
-local function frame(parent, pos, size, color)
+-- role = theme key for the background color
+local function frame(parent, pos, size, role)
 	local f = Instance.new('Frame')
 	f.Position = pos
 	f.Size = size
-	f.BackgroundColor3 = color or T.panel
 	f.BorderSizePixel = 0
 	f.Parent = parent
+	reg(function(t, inst) set(f, { BackgroundColor3 = t[role] }, inst) end)
 	return f
 end
 
-local function text(parent, str, pos, size, opts)
-	opts = opts or {}
+-- role = theme key for the text color
+local function label(parent, str, pos, size, role, textSize, align, font)
 	local l = Instance.new('TextLabel')
 	l.Text = str
 	l.Position = pos
 	l.Size = size
 	l.BackgroundTransparency = 1
-	l.TextColor3 = opts.color or T.text
-	l.Font = opts.font or Enum.Font.Gotham
-	l.TextSize = opts.size or 14
-	l.TextXAlignment = opts.align or Enum.TextXAlignment.Left
+	l.Font = font or Enum.Font.Gotham
+	l.TextSize = textSize or 14
+	l.TextXAlignment = align or Enum.TextXAlignment.Left
 	l.Parent = parent
+	reg(function(t, inst) set(l, { TextColor3 = t[role or 'text'] }, inst) end)
 	return l
 end
 
-local function btn(parent, str, pos, size, color)
+-- kind = theme key used as the button color
+local function button(parent, str, pos, size, kind)
+	kind = kind or 'item'
 	local b = Instance.new('TextButton')
 	b.Text = str
 	b.Position = pos
 	b.Size = size
-	b.BackgroundColor3 = color or T.item
-	b.TextColor3 = T.text
-	b.Font = Enum.Font.GothamBold
 	b.TextSize = 13
+	b.Font = Enum.Font.GothamMedium
 	b.AutoButtonColor = false
 	b.BorderSizePixel = 0
 	b.Parent = parent
 	corner(b, 8)
-	local base = b.BackgroundColor3
-	bind(b.MouseEnter, function()
-		TweenService:Create(b, TweenInfo.new(0.12), { BackgroundColor3 = base:Lerp(Color3.new(1, 1, 1), 0.12) }):Play()
+	local hovering = false
+	local function target(t)
+		local base = t[kind]
+		return hovering and base:Lerp(t.text, 0.08) or base
+	end
+	reg(function(t, inst)
+		set(b, { BackgroundColor3 = target(t), TextColor3 = (kind == 'danger' or kind == 'accent') and C(255, 255, 255) or t.text }, inst)
 	end)
-	bind(b.MouseLeave, function()
-		TweenService:Create(b, TweenInfo.new(0.12), { BackgroundColor3 = b:GetAttribute('base') or base }):Play()
-	end)
-	b:SetAttribute('base', base)
+	bind(b.MouseEnter, function() hovering = true; tw(b, { BackgroundColor3 = target(theme) }, 0.15) end)
+	bind(b.MouseLeave, function() hovering = false; tw(b, { BackgroundColor3 = target(theme) }, 0.15) end)
 	return b
-end
-
-local function setBase(b, color)
-	b:SetAttribute('base', color)
-	b.BackgroundColor3 = color
 end
 
 -- FOV CIRCLE
@@ -288,34 +314,28 @@ fovCircle.Visible = false
 fovCircle.Parent = gui
 corner(fovCircle, 9999)
 local fovStroke = Instance.new('UIStroke')
-fovStroke.Color = T.accent
-fovStroke.Thickness = 1.5
+fovStroke.Thickness = 1
+fovStroke.Transparency = 0.4
 fovStroke.Parent = fovCircle
+reg(function(t, inst) set(fovStroke, { Color = t.accent }, inst) end)
 
 -- MAIN WINDOW
-local FULL_SIZE = UDim2.fromOffset(360, 520)
+local FULL_SIZE = UDim2.fromOffset(380, 500)
 local main = Instance.new('CanvasGroup')
 main.Size = FULL_SIZE
 main.AnchorPoint = Vector2.new(0.5, 0.5)
 main.Position = UDim2.fromScale(0.5, 0.5)
-main.BackgroundColor3 = T.bg
 main.BorderSizePixel = 0
 main.Parent = gui
-corner(main, 14)
-local mainStroke = Instance.new('UIStroke')
-mainStroke.Color = T.accent
-mainStroke.Transparency = 0.5
-mainStroke.Thickness = 1.5
-mainStroke.Parent = main
+corner(main, 12)
+reg(function(t, inst) set(main, { BackgroundColor3 = t.bg }, inst) end)
+local scale = Instance.new('UIScale')
+scale.Parent = main
 
 -- TITLE BAR (drag handle)
-local titleBar = frame(main, UDim2.new(), UDim2.new(1, 0, 0, 44), T.panel)
-text(titleBar, 'SCRIPT HUB', UDim2.fromOffset(16, 0), UDim2.new(1, -90, 1, 0),
-	{ font = Enum.Font.GothamBlack, size = 17 })
-local hintTop = text(titleBar, 'P: hide   End: panic', UDim2.new(1, -170, 0, 0), UDim2.fromOffset(160, 44),
-	{ color = T.dim, size = 11, align = Enum.TextXAlignment.Right })
-hintTop.Position = UDim2.new(1, -170, 0, 0)
-local accentLine = frame(main, UDim2.fromOffset(0, 44), UDim2.new(1, 0, 0, 2), T.accent)
+local titleBar = frame(main, UDim2.new(), UDim2.new(1, 0, 0, 44), 'panel')
+label(titleBar, 'Script Hub', UDim2.fromOffset(16, 0), UDim2.new(1, -150, 1, 0), 'text', 15, nil, Enum.Font.GothamBold)
+label(titleBar, 'P hide  ·  End panic', UDim2.new(1, -160, 0, 0), UDim2.fromOffset(148, 44), 'dim', 11, Enum.TextXAlignment.Right)
 
 do -- dragging
 	local dragging, dragStart, startPos
@@ -337,86 +357,151 @@ do -- dragging
 	end)
 end
 
--- CONTENT
-local content = Instance.new('ScrollingFrame')
-content.Position = UDim2.fromOffset(0, 48)
-content.Size = UDim2.new(1, 0, 1, -48)
-content.BackgroundTransparency = 1
-content.BorderSizePixel = 0
-content.ScrollBarThickness = 3
-content.CanvasSize = UDim2.new()
-content.AutomaticCanvasSize = Enum.AutomaticSize.Y
-content.Parent = main
-local pad = Instance.new('UIPadding')
-pad.PaddingLeft, pad.PaddingRight = UDim.new(0, 12), UDim.new(0, 12)
-pad.PaddingTop, pad.PaddingBottom = UDim.new(0, 10), UDim.new(0, 12)
-pad.Parent = content
-local list = Instance.new('UIListLayout')
-list.Padding = UDim.new(0, 10)
-list.SortOrder = Enum.SortOrder.LayoutOrder
-list.Parent = content
+-- TAB BAR
+local tabBar = frame(main, UDim2.fromOffset(12, 54), UDim2.new(1, -24, 0, 32), 'panel')
+corner(tabBar, 8)
+local pages, tabButtons = {}, {}
+local activePage = 'Main'
 
-local order = 0
-local function section(title, height)
-	order += 1
-	local card = frame(content, UDim2.new(), UDim2.new(1, 0, 0, height), T.panel)
-	card.LayoutOrder = order
+local function refreshTabs(instant)
+	for name, b in pairs(tabButtons) do
+		local active = name == activePage
+		set(b, {
+			BackgroundTransparency = active and 0 or 1,
+			TextColor3 = active and theme.text or theme.dim,
+			BackgroundColor3 = theme.item,
+		}, instant)
+	end
+end
+reg(function(_, inst) refreshTabs(inst) end)
+
+local function setPage(name)
+	activePage = name
+	for n, p in pairs(pages) do p.Visible = n == name end
+	refreshTabs(false)
+end
+
+local function newPage(name, index, total)
+	local b = Instance.new('TextButton')
+	b.Text = name
+	b.Size = UDim2.new(1 / total, -4, 1, -6)
+	b.Position = UDim2.new((index - 1) / total, 2, 0, 3)
+	b.Font = Enum.Font.GothamMedium
+	b.TextSize = 13
+	b.AutoButtonColor = false
+	b.BorderSizePixel = 0
+	b.Parent = tabBar
+	corner(b, 6)
+	tabButtons[name] = b
+	bind(b.MouseButton1Click, function() setPage(name) end)
+
+	local page = Instance.new('ScrollingFrame')
+	page.Position = UDim2.fromOffset(0, 94)
+	page.Size = UDim2.new(1, 0, 1, -94)
+	page.BackgroundTransparency = 1
+	page.BorderSizePixel = 0
+	page.ScrollBarThickness = 2
+	page.CanvasSize = UDim2.new()
+	page.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	page.Visible = false
+	page.Parent = main
+	reg(function(t, inst) set(page, { ScrollBarImageColor3 = t.dim }, inst) end)
+	local pad = Instance.new('UIPadding')
+	pad.PaddingLeft, pad.PaddingRight = UDim.new(0, 12), UDim.new(0, 12)
+	pad.PaddingTop, pad.PaddingBottom = UDim.new(0, 2), UDim.new(0, 12)
+	pad.Parent = page
+	local list = Instance.new('UIListLayout')
+	list.Padding = UDim.new(0, 10)
+	list.SortOrder = Enum.SortOrder.LayoutOrder
+	list.Parent = page
+	pages[name] = page
+	return page
+end
+
+local mainPage = newPage('Main', 1, 2)
+local themePage = newPage('Themes', 2, 2)
+
+local orders = {}
+local function nextOrder(page)
+	orders[page] = (orders[page] or 0) + 1
+	return orders[page]
+end
+
+local function section(page, title, height)
+	local card = frame(page, UDim2.new(), UDim2.new(1, 0, 0, height), 'panel')
+	card.LayoutOrder = nextOrder(page)
 	corner(card, 10)
-	text(card, title:upper(), UDim2.fromOffset(12, 6), UDim2.new(1, -24, 0, 20),
-		{ color = T.accent, font = Enum.Font.GothamBold, size = 12 })
+	label(card, title, UDim2.fromOffset(14, 8), UDim2.new(1, -28, 0, 18), 'dim', 12, nil, Enum.Font.GothamMedium)
 	return card
 end
 
 local function switch(parent, y, name, callback)
-	text(parent, name, UDim2.fromOffset(12, y), UDim2.new(1, -80, 0, 28))
+	label(parent, name, UDim2.fromOffset(14, y), UDim2.new(1, -90, 0, 28), 'text', 14)
 	local track = Instance.new('TextButton')
 	track.Text = ''
 	track.AutoButtonColor = false
 	track.Position = UDim2.new(1, -62, 0, y + 2)
-	track.Size = UDim2.fromOffset(50, 24)
-	track.BackgroundColor3 = T.item
+	track.Size = UDim2.fromOffset(46, 24)
 	track.BorderSizePixel = 0
 	track.Parent = parent
 	corner(track, 12)
-	local knob = frame(track, UDim2.fromOffset(3, 3), UDim2.fromOffset(18, 18), T.text)
+	local knob = Instance.new('Frame')
+	knob.Position = UDim2.fromOffset(3, 3)
+	knob.Size = UDim2.fromOffset(18, 18)
+	knob.BorderSizePixel = 0
+	knob.Parent = track
 	corner(knob, 9)
 	local state = false
-	local function set(on)
-		state = on
-		TweenService:Create(track, TweenInfo.new(0.15), { BackgroundColor3 = on and T.on or T.item }):Play()
-		TweenService:Create(knob, TweenInfo.new(0.15), { Position = on and UDim2.fromOffset(29, 3) or UDim2.fromOffset(3, 3) }):Play()
-		callback(on)
-	end
-	bind(track.MouseButton1Click, function() set(not state) end)
-	return set
+	reg(function(t, inst)
+		set(track, { BackgroundColor3 = state and t.on or t.item }, inst)
+		set(knob, { BackgroundColor3 = t.text }, inst)
+	end)
+	bind(track.MouseButton1Click, function()
+		state = not state
+		tw(track, { BackgroundColor3 = state and theme.on or theme.item }, 0.2)
+		tw(knob, { Position = state and UDim2.fromOffset(25, 3) or UDim2.fromOffset(3, 3) }, 0.2)
+		callback(state)
+	end)
 end
 
-local function slider(parent, y, name, min, max, step, get, set)
-	text(parent, name, UDim2.fromOffset(12, y), UDim2.new(0.5, 0, 0, 20))
-	local valLbl = text(parent, tostring(get()), UDim2.new(0.5, 0, 0, y), UDim2.new(0.5, -12, 0, 20),
-		{ align = Enum.TextXAlignment.Right, color = T.dim })
-	local track = frame(parent, UDim2.new(0, 12, 0, y + 28), UDim2.new(1, -24, 0, 6), T.item)
-	corner(track, 3)
-	local fill = frame(track, UDim2.new(), UDim2.new(0, 0, 1, 0), T.accent)
-	corner(fill, 3)
-	local knob = frame(track, UDim2.new(0, 0, 0.5, -8), UDim2.fromOffset(16, 16), T.text)
+local function slider(parent, y, name, min, max, step, get, setter)
+	label(parent, name, UDim2.fromOffset(14, y), UDim2.new(0.5, 0, 0, 20), 'text', 13)
+	local valLbl = label(parent, tostring(get()), UDim2.new(0.5, 0, 0, y), UDim2.new(0.5, -14, 0, 20), 'dim', 13, Enum.TextXAlignment.Right)
+	local track = frame(parent, UDim2.new(0, 14, 0, y + 28), UDim2.new(1, -28, 0, 4), 'item')
+	corner(track, 2)
+	local fill = frame(track, UDim2.new(), UDim2.new(0, 0, 1, 0), 'accent')
+	corner(fill, 2)
+	local knob = frame(track, UDim2.new(0, 0, 0.5, -7), UDim2.fromOffset(14, 14), 'text')
 	knob.AnchorPoint = Vector2.new(0.5, 0)
-	corner(knob, 8)
+	corner(knob, 7)
 
-	local function render()
+	local function render(animate)
 		local a = (get() - min) / (max - min)
-		fill.Size = UDim2.new(a, 0, 1, 0)
-		knob.Position = UDim2.new(a, 0, 0.5, -8)
+		local fs, kp = UDim2.new(a, 0, 1, 0), UDim2.new(a, 0, 0.5, -7)
+		if animate then
+			tw(fill, { Size = fs }, 0.08)
+			tw(knob, { Position = kp }, 0.08)
+		else
+			fill.Size, knob.Position = fs, kp
+		end
 		valLbl.Text = tostring(get())
 	end
 	local dragging = false
 	local function fromX(x)
 		local a = math.clamp((x - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
 		local v = min + a * (max - min)
-		set(math.clamp(math.floor(v / step + 0.5) * step, min, max))
-		render()
+		setter(math.clamp(math.floor(v / step + 0.5) * step, min, max))
+		render(true)
 	end
-	bind(track.InputBegan, function(i)
+	-- larger invisible hit area
+	local hit = Instance.new('TextButton')
+	hit.Text = ''
+	hit.BackgroundTransparency = 1
+	hit.Position = UDim2.new(0, 14, 0, y + 20)
+	hit.Size = UDim2.new(1, -28, 0, 20)
+	hit.ZIndex = 5
+	hit.Parent = parent
+	bind(hit.InputBegan, function(i)
 		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
 			fromX(i.Position.X)
@@ -432,11 +517,11 @@ local function slider(parent, y, name, min, max, step, get, set)
 			dragging = false
 		end
 	end)
-	render()
+	render(false)
 end
 
--- ESP SECTION
-local espCard = section('ESP', 130)
+-- MAIN PAGE: ESP
+local espCard = section(mainPage, 'ESP', 132)
 local espStatus
 switch(espCard, 30, 'Object ESP', function(on)
 	ESP.enabled = on
@@ -452,30 +537,40 @@ switch(espCard, 30, 'Object ESP', function(on)
 		espStatus.Text = 'Tracking ' .. n .. ' model(s)'
 	end
 end)
-text(espCard, 'Color', UDim2.fromOffset(12, 66), UDim2.fromOffset(60, 26))
+label(espCard, 'Color', UDim2.fromOffset(14, 66), UDim2.fromOffset(60, 26), 'text', 13)
 local swatches = {}
 for i, col in ipairs(ESP.colors) do
-	local s = btn(espCard, '', UDim2.fromOffset(70 + (i - 1) * 36, 67), UDim2.fromOffset(28, 24), col)
-	swatches[i] = s
+	local s = Instance.new('TextButton')
+	s.Text = ''
+	s.AutoButtonColor = false
+	s.Position = UDim2.fromOffset(74 + (i - 1) * 34, 68)
+	s.Size = UDim2.fromOffset(22, 22)
+	s.BackgroundColor3 = col
+	s.BorderSizePixel = 0
+	s.Parent = espCard
+	corner(s, 11)
+	local ring = Instance.new('UIStroke')
+	ring.Thickness = 2
+	ring.Transparency = i == 1 and 0 or 1
+	ring.Parent = s
+	reg(function(t, inst) set(ring, { Color = t.text }, inst) end)
+	swatches[i] = ring
 	bind(s.MouseButton1Click, function()
 		ESP.colorIndex = i
 		ESP.recolor()
-		for j, o in ipairs(swatches) do
-			o.Text = j == i and '•' or ''
-		end
+		for j, r in ipairs(swatches) do tw(r, { Transparency = j == i and 0 or 1 }, 0.15) end
 	end)
 end
-swatches[1].Text = '•'
-espStatus = text(espCard, 'Off', UDim2.fromOffset(12, 100), UDim2.new(1, -24, 0, 22), { color = T.dim, size = 12 })
+espStatus = label(espCard, 'Off', UDim2.fromOffset(14, 102), UDim2.new(1, -28, 0, 22), 'dim', 12)
 
--- AIMBOT SECTION
-local aimCard = section('Aimbot', 190)
-text(aimCard, 'Hold to aim', UDim2.fromOffset(12, 30), UDim2.new(0.4, 0, 0, 30))
-local keyBtn = btn(aimCard, hotkeyName(), UDim2.new(0.4, 0, 0, 32), UDim2.new(0.6, -12, 0, 28))
-slider(aimCard, 70, 'Smoothness', 1, 30, 1, function() return Aim.smooth end, function(v) Aim.smooth = v end)
-slider(aimCard, 124, 'FOV radius', 30, 500, 10, function() return Aim.fov end, function(v)
+-- MAIN PAGE: AIMBOT
+local aimCard = section(mainPage, 'Aimbot', 194)
+label(aimCard, 'Hold to aim', UDim2.fromOffset(14, 32), UDim2.new(0.4, 0, 0, 30), 'text', 14)
+local keyBtn = button(aimCard, hotkeyName(), UDim2.new(0.4, 0, 0, 34), UDim2.new(0.6, -14, 0, 28))
+slider(aimCard, 72, 'Smoothness', 1, 30, 1, function() return Aim.smooth end, function(v) Aim.smooth = v end)
+slider(aimCard, 126, 'FOV radius', 30, 500, 10, function() return Aim.fov end, function(v)
 	Aim.fov = v
-	fovCircle.Size = UDim2.fromOffset(v * 2, v * 2)
+	tw(fovCircle, { Size = UDim2.fromOffset(v * 2, v * 2) }, 0.08)
 end)
 
 local function setHolding(on)
@@ -489,16 +584,15 @@ bind(keyBtn.MouseButton1Click, function()
 	setHolding(false)
 	Aim.rebinding = true
 	keyBtn.Text = 'Press any key...'
-	setBase(keyBtn, T.accent)
 end)
 
--- MISC SECTION
-local miscCard = section('Misc', 70)
+-- MAIN PAGE: MISC
+local miscCard = section(mainPage, 'Misc', 72)
 local originalSpeed
 local function currentHum()
 	return player.Character and player.Character:FindFirstChildOfClass('Humanoid')
 end
-switch(miscCard, 30, 'Fast Walk (50)', function(on)
+switch(miscCard, 32, 'Fast Walk (50)', function(on)
 	local hum = currentHum()
 	if not hum then return end
 	if on then
@@ -510,10 +604,8 @@ switch(miscCard, 30, 'Fast Walk (50)', function(on)
 end)
 
 -- PANIC
-order += 1
-local panicBtn = btn(content, 'PANIC  -  DELETE HUB  (End)', UDim2.new(), UDim2.new(1, 0, 0, 42), T.danger)
-panicBtn.LayoutOrder = order
-panicBtn.TextSize = 14
+local panicBtn = button(mainPage, 'Panic  -  delete hub  (End)', UDim2.new(), UDim2.new(1, 0, 0, 38), 'danger')
+panicBtn.LayoutOrder = nextOrder(mainPage)
 
 local function panic()
 	if destroyed then return end
@@ -528,35 +620,76 @@ local function panic()
 	if hum and originalSpeed then hum.WalkSpeed = originalSpeed end
 	for _, c in ipairs(connections) do c:Disconnect() end
 	table.clear(connections)
+	table.clear(updaters)
 	gui:Destroy()
 end
-panicBtn.MouseButton1Click:Connect(panic)
+bind(panicBtn.MouseButton1Click, panic)
 
--- SHOW / HIDE (old-TV effect)
-local isOpen, busy = true, false
-local function tween(obj, time, style, dir, goal)
-	local t = TweenService:Create(obj, TweenInfo.new(time, style, dir), goal)
-	t:Play()
-	t.Completed:Wait()
+-- THEMES PAGE
+local themeCard = section(themePage, 'Choose a theme', 30 + #THEME_ORDER * 40 + 8)
+for i, name in ipairs(THEME_ORDER) do
+	local th = Themes[name]
+	local row = Instance.new('TextButton')
+	row.Text = ''
+	row.AutoButtonColor = false
+	row.Position = UDim2.fromOffset(10, 30 + (i - 1) * 40)
+	row.Size = UDim2.new(1, -20, 0, 34)
+	row.BorderSizePixel = 0
+	row.Parent = themeCard
+	corner(row, 8)
+	-- preview swatches (fixed colors from that theme)
+	for k, key in ipairs({ 'bg', 'item', 'accent' }) do
+		local dot = Instance.new('Frame')
+		dot.Position = UDim2.fromOffset(10 + (k - 1) * 18, 9)
+		dot.Size = UDim2.fromOffset(16, 16)
+		dot.BackgroundColor3 = th[key]
+		dot.BorderSizePixel = 0
+		dot.Parent = row
+		corner(dot, 8)
+		local s = Instance.new('UIStroke')
+		s.Color = C(128, 128, 128)
+		s.Transparency = 0.7
+		s.Parent = dot
+	end
+	label(row, name, UDim2.fromOffset(72, 0), UDim2.new(1, -110, 1, 0), 'text', 14)
+	local check = label(row, '✓', UDim2.new(1, -30, 0, 0), UDim2.fromOffset(24, 34), 'accent', 16, Enum.TextXAlignment.Center, Enum.Font.GothamBold)
+	local hovering = false
+	local function refresh(t, inst)
+		local selected = currentTheme == name
+		local bg = selected and t.item or t.panel
+		if hovering and not selected then bg = t.item:Lerp(t.panel, 0.5) end
+		set(row, { BackgroundColor3 = bg }, inst)
+		set(check, { TextTransparency = selected and 0 or 1 }, inst)
+	end
+	reg(refresh)
+	bind(row.MouseEnter, function() hovering = true; refresh(theme, false) end)
+	bind(row.MouseLeave, function() hovering = false; refresh(theme, false) end)
+	bind(row.MouseButton1Click, function() applyTheme(name) end)
 end
 
+setPage('Main')
+
+-- SHOW / HIDE (soft fade + slight scale)
+local isOpen, busy = true, false
 local function setOpen(open)
 	if busy or open == isOpen or destroyed then return end
 	busy = true
 	isOpen = open
-	local w = FULL_SIZE.X.Offset
+	local info = TweenInfo.new(0.22, Enum.EasingStyle.Quad, open and Enum.EasingDirection.Out or Enum.EasingDirection.In)
 	if open then
-		main.Size = UDim2.fromOffset(0, 3)
-		main.GroupTransparency = 0
+		scale.Scale = 0.96
+		main.GroupTransparency = 1
 		main.Visible = true
-		tween(main, 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, { Size = UDim2.fromOffset(w, 3) })
-		tween(main, 0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, { Size = FULL_SIZE })
+		TweenService:Create(scale, info, { Scale = 1 }):Play()
+		local t = TweenService:Create(main, info, { GroupTransparency = 0 })
+		t:Play()
+		t.Completed:Wait()
 	else
-		tween(main, 0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In, { Size = UDim2.fromOffset(w, 3) })
-		TweenService:Create(main, TweenInfo.new(0.15), { GroupTransparency = 1 }):Play()
-		tween(main, 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In, { Size = UDim2.fromOffset(0, 3) })
+		TweenService:Create(scale, info, { Scale = 0.96 }):Play()
+		local t = TweenService:Create(main, info, { GroupTransparency = 1 })
+		t:Play()
+		t.Completed:Wait()
 		main.Visible = false
-		main.Size = FULL_SIZE
 	end
 	busy = false
 end
@@ -580,7 +713,6 @@ bind(UIS.InputBegan, function(input, processed)
 				Aim.hotkey = isKey and input.KeyCode or t
 			end
 			keyBtn.Text = hotkeyName()
-			setBase(keyBtn, T.item)
 		end
 		return
 	end
