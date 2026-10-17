@@ -63,6 +63,9 @@ local function set(obj, props, instant)
 	end
 end
 
+-- KEY CAPTURE (used by every keybind button)
+local capture = nil
+
 -- ESP
 local ESP = {
 	enabled = false,
@@ -166,7 +169,6 @@ local Aim = {
 	fov = 150,
 	targets = {},
 	conns = {},
-	rebinding = false,
 }
 
 local function matchesHotkey(input)
@@ -238,6 +240,103 @@ RunService:BindToRenderStep('HubAim', Enum.RenderPriority.Camera.Value + 1, func
 	camera.CFrame = camera.CFrame:Lerp(goal, math.clamp(dt * 60 / Aim.smooth, 0, 1))
 end)
 
+-- CAR SPEED (vehicle logic)
+local Car = {
+	keys = true,
+	flight = false,
+	flightSpeed = 1,
+	accelMult = 0.025,
+	accelKey = Enum.KeyCode.W,
+	brakeMult = 0.15,
+	brakeKey = Enum.KeyCode.S,
+	stopKey = Enum.KeyCode.X,
+	moved = false,
+	springs = {},
+}
+
+local function getSeat()
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass('Humanoid')
+	local seat = hum and hum.SeatPart
+	if seat and seat:IsA('VehicleSeat') then return seat end
+end
+
+local function vehicleOf(inst)
+	local body = inst:FindFirstAncestor('Body')
+	local misc = inst:FindFirstAncestor('Misc')
+	return inst:FindFirstAncestor(player.Name .. "'s Car")
+		or (body and body.Parent)
+		or (misc and misc.Parent)
+		or inst:FindFirstAncestorWhichIsA('Model')
+end
+
+local function releaseCharacter()
+	if Car.moved then
+		local char = player.Character
+		if char then char.Parent = workspace end
+		Car.moved = false
+	end
+end
+
+bind(RunService.Stepped, function()
+	local seat = getSeat()
+	local typing = UIS:GetFocusedTextBox() ~= nil
+
+	if Car.flight and seat then
+		local vehicle = vehicleOf(seat)
+		if vehicle and vehicle:IsA('Model') then
+			local char = player.Character
+			if char and char.Parent ~= vehicle then
+				char.Parent = vehicle
+				Car.moved = true
+			end
+			local pos = vehicle:GetPivot().Position
+			local s = Car.flightSpeed
+			local x, y, z = 0, 0, 0
+			if not typing then
+				x = (UIS:IsKeyDown(Enum.KeyCode.D) and s) or (UIS:IsKeyDown(Enum.KeyCode.A) and -s) or 0
+				y = (UIS:IsKeyDown(Enum.KeyCode.E) and s / 2) or (UIS:IsKeyDown(Enum.KeyCode.Q) and -s / 2) or 0
+				z = (UIS:IsKeyDown(Enum.KeyCode.S) and s) or (UIS:IsKeyDown(Enum.KeyCode.W) and -s) or 0
+			end
+			vehicle:PivotTo(CFrame.new(pos, pos + camera.CFrame.LookVector) * CFrame.new(x, y, z))
+			seat.AssemblyLinearVelocity = Vector3.zero
+			seat.AssemblyAngularVelocity = Vector3.zero
+			return
+		end
+	end
+
+	releaseCharacter()
+
+	if Car.keys and seat and not typing then
+		if UIS:IsKeyDown(Car.accelKey) then
+			seat.AssemblyLinearVelocity *= Vector3.new(1 + Car.accelMult, 1, 1 + Car.accelMult)
+		end
+		if UIS:IsKeyDown(Car.brakeKey) then
+			seat.AssemblyLinearVelocity *= Vector3.new(1 - Car.brakeMult, 1, 1 - Car.brakeMult)
+		end
+	end
+end)
+
+local function setSprings(visible)
+	local seat = getSeat()
+	if visible then
+		if not seat then return end
+		local vehicle = vehicleOf(seat)
+		if not vehicle then return end
+		for _, d in ipairs(vehicle:GetDescendants()) do
+			if d:IsA('SpringConstraint') then
+				Car.springs[d] = true
+				d.Visible = true
+			end
+		end
+	else
+		for s in pairs(Car.springs) do
+			if s.Parent then s.Visible = false end
+		end
+		table.clear(Car.springs)
+	end
+end
+
 -- GUI HELPERS
 local gui = Instance.new('ScreenGui')
 gui.Name = 'ScriptHub'
@@ -252,7 +351,6 @@ local function corner(inst, r)
 	return c
 end
 
--- role = theme key for the background color
 local function frame(parent, pos, size, role)
 	local f = Instance.new('Frame')
 	f.Position = pos
@@ -263,7 +361,6 @@ local function frame(parent, pos, size, role)
 	return f
 end
 
--- role = theme key for the text color
 local function label(parent, str, pos, size, role, textSize, align, font)
 	local l = Instance.new('TextLabel')
 	l.Text = str
@@ -278,7 +375,6 @@ local function label(parent, str, pos, size, role, textSize, align, font)
 	return l
 end
 
--- kind = theme key used as the button color
 local function button(parent, str, pos, size, kind)
 	kind = kind or 'item'
 	local b = Instance.new('TextButton')
@@ -318,6 +414,13 @@ fovStroke.Thickness = 1
 fovStroke.Transparency = 0.4
 fovStroke.Parent = fovCircle
 reg(function(t, inst) set(fovStroke, { Color = t.accent }, inst) end)
+
+local function setHolding(on)
+	if on == Aim.holding then return end
+	Aim.holding = on
+	if on then Aim.rescan() end
+	fovCircle.Visible = on
+end
 
 -- MAIN WINDOW
 local FULL_SIZE = UDim2.fromOffset(380, 500)
@@ -418,8 +521,9 @@ local function newPage(name, index, total)
 	return page
 end
 
-local mainPage = newPage('Main', 1, 2)
-local themePage = newPage('Themes', 2, 2)
+local mainPage = newPage('Main', 1, 3)
+local carPage = newPage('Car Speed', 2, 3)
+local themePage = newPage('Themes', 3, 3)
 
 local orders = {}
 local function nextOrder(page)
@@ -462,11 +566,19 @@ local function switch(parent, y, name, callback)
 		tw(knob, { Position = state and UDim2.fromOffset(25, 3) or UDim2.fromOffset(3, 3) }, 0.2)
 		callback(state)
 	end)
+	-- allow starting in the ON state
+	return function(initial)
+		if initial then
+			state = true
+			track.BackgroundColor3 = theme.on
+			knob.Position = UDim2.fromOffset(25, 3)
+		end
+	end
 end
 
 local function slider(parent, y, name, min, max, step, get, setter)
-	label(parent, name, UDim2.fromOffset(14, y), UDim2.new(0.5, 0, 0, 20), 'text', 13)
-	local valLbl = label(parent, tostring(get()), UDim2.new(0.5, 0, 0, y), UDim2.new(0.5, -14, 0, 20), 'dim', 13, Enum.TextXAlignment.Right)
+	label(parent, name, UDim2.fromOffset(14, y), UDim2.new(0.7, 0, 0, 20), 'text', 13)
+	local valLbl = label(parent, tostring(get()), UDim2.new(0.7, 0, 0, y), UDim2.new(0.3, -14, 0, 20), 'dim', 13, Enum.TextXAlignment.Right)
 	local track = frame(parent, UDim2.new(0, 14, 0, y + 28), UDim2.new(1, -28, 0, 4), 'item')
 	corner(track, 2)
 	local fill = frame(track, UDim2.new(), UDim2.new(0, 0, 1, 0), 'accent')
@@ -493,7 +605,6 @@ local function slider(parent, y, name, min, max, step, get, setter)
 		setter(math.clamp(math.floor(v / step + 0.5) * step, min, max))
 		render(true)
 	end
-	-- larger invisible hit area
 	local hit = Instance.new('TextButton')
 	hit.Text = ''
 	hit.BackgroundTransparency = 1
@@ -518,6 +629,22 @@ local function slider(parent, y, name, min, max, step, get, setter)
 		end
 	end)
 	render(false)
+end
+
+-- keyboard keybind row (click, then press a key; Escape cancels)
+local function keybindRow(parent, y, name, getKey, setKey)
+	label(parent, name, UDim2.fromOffset(14, y), UDim2.new(0.5, 0, 0, 28), 'text', 14)
+	local b = button(parent, getKey().Name, UDim2.new(0.5, 0, 0, y), UDim2.new(0.5, -14, 0, 28))
+	bind(b.MouseButton1Click, function()
+		b.Text = 'Press a key...'
+		capture = function(input)
+			if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode ~= Enum.KeyCode.Escape then
+				setKey(input.KeyCode)
+			end
+			b.Text = getKey().Name
+		end
+	end)
+	return b
 end
 
 -- MAIN PAGE: ESP
@@ -572,27 +699,27 @@ slider(aimCard, 126, 'FOV radius', 30, 500, 10, function() return Aim.fov end, f
 	Aim.fov = v
 	tw(fovCircle, { Size = UDim2.fromOffset(v * 2, v * 2) }, 0.08)
 end)
-
-local function setHolding(on)
-	if on == Aim.holding then return end
-	Aim.holding = on
-	if on then Aim.rescan() end
-	fovCircle.Visible = on
-end
-
 bind(keyBtn.MouseButton1Click, function()
 	setHolding(false)
-	Aim.rebinding = true
-	keyBtn.Text = 'Press any key...'
+	keyBtn.Text = 'Press a key...'
+	capture = function(input)
+		local t = input.UserInputType
+		if t == Enum.UserInputType.Keyboard then
+			if input.KeyCode ~= Enum.KeyCode.Escape then Aim.hotkey = input.KeyCode end
+		else
+			Aim.hotkey = t
+		end
+		keyBtn.Text = hotkeyName()
+	end
 end)
 
 -- MAIN PAGE: MISC
-local miscCard = section(mainPage, 'Misc', 72)
+local miscCard = section(mainPage, 'Misc', 70)
 local originalSpeed
 local function currentHum()
 	return player.Character and player.Character:FindFirstChildOfClass('Humanoid')
 end
-switch(miscCard, 32, 'Fast Walk (50)', function(on)
+switch(miscCard, 30, 'Fast Walk (50)', function(on)
 	local hum = currentHum()
 	if not hum then return end
 	if on then
@@ -603,14 +730,75 @@ switch(miscCard, 32, 'Fast Walk (50)', function(on)
 	end
 end)
 
+-- CAR PAGE
+local usageCard = section(carPage, 'Usage', 70)
+local usageInit = switch(usageCard, 30, 'Keybinds Active', function(on) Car.keys = on end)
+usageInit(true)
+
+local flightCard = section(carPage, 'Flight', 126)
+switch(flightCard, 30, 'Enabled', function(on)
+	Car.flight = on
+	if not on then releaseCharacter() end
+end)
+slider(flightCard, 70, 'Speed', 0, 800, 10, function() return math.floor(Car.flightSpeed * 100 + 0.5) end, function(v)
+	Car.flightSpeed = v / 100
+end)
+
+local accelCard = section(carPage, 'Acceleration', 120)
+slider(accelCard, 30, 'Multiplier (thousandths)', 0, 50, 1, function() return math.floor(Car.accelMult * 1000 + 0.5) end, function(v)
+	Car.accelMult = v / 1000
+end)
+keybindRow(accelCard, 78, 'Boost key', function() return Car.accelKey end, function(k) Car.accelKey = k end)
+
+local brakeCard = section(carPage, 'Deceleration', 158)
+slider(brakeCard, 30, 'Brake force (thousandths)', 0, 300, 5, function() return math.floor(Car.brakeMult * 1000 + 0.5) end, function(v)
+	Car.brakeMult = v / 1000
+end)
+keybindRow(brakeCard, 78, 'Quick brake key', function() return Car.brakeKey end, function(k) Car.brakeKey = k end)
+keybindRow(brakeCard, 114, 'Stop vehicle key', function() return Car.stopKey end, function(k) Car.stopKey = k end)
+
+local springCard = section(carPage, 'Springs', 70)
+switch(springCard, 30, 'Visible', function(on) setSprings(on) end)
+
+-- THEMES PAGE
+local themeCard = section(themePage, 'Choose a theme', 30 + math.ceil(#THEME_ORDER / 2) * 40 + 8)
+local themeStrokes = {}
+for i, name in ipairs(THEME_ORDER) do
+	local col, row = (i - 1) % 2, math.floor((i - 1) / 2)
+	local b = button(themeCard, name, UDim2.new(col * 0.5, col == 0 and 14 or 4, 0, 32 + row * 40), UDim2.new(0.5, -18, 0, 34))
+	local dot = Instance.new('Frame')
+	dot.AnchorPoint = Vector2.new(1, 0.5)
+	dot.Position = UDim2.new(1, -10, 0.5, 0)
+	dot.Size = UDim2.fromOffset(12, 12)
+	dot.BackgroundColor3 = Themes[name].accent
+	dot.BorderSizePixel = 0
+	dot.Parent = b
+	corner(dot, 6)
+	local stroke = Instance.new('UIStroke')
+	stroke.Thickness = 1.5
+	stroke.Transparency = name == currentTheme and 0 or 1
+	stroke.Parent = b
+	reg(function(t, inst) set(stroke, { Color = t.accent }, inst) end)
+	themeStrokes[name] = stroke
+	bind(b.MouseButton1Click, function()
+		applyTheme(name)
+		for n, s in pairs(themeStrokes) do tw(s, { Transparency = n == name and 0 or 1 }, 0.2) end
+	end)
+end
+
 -- PANIC
-local panicBtn = button(mainPage, 'Panic  -  delete hub  (End)', UDim2.new(), UDim2.new(1, 0, 0, 38), 'danger')
-panicBtn.LayoutOrder = nextOrder(mainPage)
+local panicBtn = button(mainPage, 'Panic  -  delete hub  (End)', UDim2.new(), UDim2.new(1, 0, 0, 40), 'danger')
+panicBtn.LayoutOrder = 999
 
 local function panic()
 	if destroyed then return end
 	destroyed = true
+	capture = nil
 	Aim.holding = false
+	Car.flight = false
+	Car.keys = false
+	releaseCharacter()
+	setSprings(false)
 	pcall(function() RunService:UnbindFromRenderStep('HubAim') end)
 	ESP.enabled = false
 	ESP.clear()
@@ -620,79 +808,34 @@ local function panic()
 	if hum and originalSpeed then hum.WalkSpeed = originalSpeed end
 	for _, c in ipairs(connections) do c:Disconnect() end
 	table.clear(connections)
-	table.clear(updaters)
 	gui:Destroy()
 end
-bind(panicBtn.MouseButton1Click, panic)
+panicBtn.MouseButton1Click:Connect(panic)
 
--- THEMES PAGE
-local themeCard = section(themePage, 'Choose a theme', 30 + #THEME_ORDER * 40 + 8)
-for i, name in ipairs(THEME_ORDER) do
-	local th = Themes[name]
-	local row = Instance.new('TextButton')
-	row.Text = ''
-	row.AutoButtonColor = false
-	row.Position = UDim2.fromOffset(10, 30 + (i - 1) * 40)
-	row.Size = UDim2.new(1, -20, 0, 34)
-	row.BorderSizePixel = 0
-	row.Parent = themeCard
-	corner(row, 8)
-	-- preview swatches (fixed colors from that theme)
-	for k, key in ipairs({ 'bg', 'item', 'accent' }) do
-		local dot = Instance.new('Frame')
-		dot.Position = UDim2.fromOffset(10 + (k - 1) * 18, 9)
-		dot.Size = UDim2.fromOffset(16, 16)
-		dot.BackgroundColor3 = th[key]
-		dot.BorderSizePixel = 0
-		dot.Parent = row
-		corner(dot, 8)
-		local s = Instance.new('UIStroke')
-		s.Color = C(128, 128, 128)
-		s.Transparency = 0.7
-		s.Parent = dot
-	end
-	label(row, name, UDim2.fromOffset(72, 0), UDim2.new(1, -110, 1, 0), 'text', 14)
-	local check = label(row, '✓', UDim2.new(1, -30, 0, 0), UDim2.fromOffset(24, 34), 'accent', 16, Enum.TextXAlignment.Center, Enum.Font.GothamBold)
-	local hovering = false
-	local function refresh(t, inst)
-		local selected = currentTheme == name
-		local bg = selected and t.item or t.panel
-		if hovering and not selected then bg = t.item:Lerp(t.panel, 0.5) end
-		set(row, { BackgroundColor3 = bg }, inst)
-		set(check, { TextTransparency = selected and 0 or 1 }, inst)
-	end
-	reg(refresh)
-	bind(row.MouseEnter, function() hovering = true; refresh(theme, false) end)
-	bind(row.MouseLeave, function() hovering = false; refresh(theme, false) end)
-	bind(row.MouseButton1Click, function() applyTheme(name) end)
-end
-
-setPage('Main')
-
--- SHOW / HIDE (soft fade + slight scale)
+-- SHOW / HIDE (soft fade + scale)
 local isOpen, busy = true, false
 local function setOpen(open)
 	if busy or open == isOpen or destroyed then return end
 	busy = true
 	isOpen = open
-	local info = TweenInfo.new(0.22, Enum.EasingStyle.Quad, open and Enum.EasingDirection.Out or Enum.EasingDirection.In)
+	local info = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 	if open then
-		scale.Scale = 0.96
+		scale.Scale = 0.94
 		main.GroupTransparency = 1
 		main.Visible = true
 		TweenService:Create(scale, info, { Scale = 1 }):Play()
-		local t = TweenService:Create(main, info, { GroupTransparency = 0 })
-		t:Play()
-		t.Completed:Wait()
+		TweenService:Create(main, info, { GroupTransparency = 0 }):Play()
 	else
-		TweenService:Create(scale, info, { Scale = 0.96 }):Play()
-		local t = TweenService:Create(main, info, { GroupTransparency = 1 })
-		t:Play()
-		t.Completed:Wait()
-		main.Visible = false
+		TweenService:Create(scale, info, { Scale = 0.94 }):Play()
+		TweenService:Create(main, info, { GroupTransparency = 1 }):Play()
 	end
+	task.wait(0.2)
+	if destroyed then return end
+	if not open then main.Visible = false end
 	busy = false
 end
+
+setPage('Main')
 
 -- INPUT
 bind(UIS.InputBegan, function(input, processed)
@@ -701,18 +844,16 @@ bind(UIS.InputBegan, function(input, processed)
 		return
 	end
 
-	if Aim.rebinding then
+	if capture then
 		local t = input.UserInputType
-		local isKey = t == Enum.UserInputType.Keyboard
-		local isMouse = t == Enum.UserInputType.MouseButton1
+		local ok = t == Enum.UserInputType.Keyboard
+			or t == Enum.UserInputType.MouseButton1
 			or t == Enum.UserInputType.MouseButton2
 			or t == Enum.UserInputType.MouseButton3
-		if isKey or isMouse then
-			Aim.rebinding = false
-			if input.KeyCode ~= Enum.KeyCode.Escape then
-				Aim.hotkey = isKey and input.KeyCode or t
-			end
-			keyBtn.Text = hotkeyName()
+		if ok then
+			local f = capture
+			capture = nil
+			f(input)
 		end
 		return
 	end
@@ -723,6 +864,15 @@ bind(UIS.InputBegan, function(input, processed)
 	end
 
 	if processed then return end
+
+	if input.KeyCode == Car.stopKey and Car.keys then
+		local seat = getSeat()
+		if seat then
+			seat.AssemblyLinearVelocity = Vector3.zero
+			seat.AssemblyAngularVelocity = Vector3.zero
+		end
+	end
+
 	if TOGGLE_KEYS[input.KeyCode] then setOpen(not isOpen) end
 end)
 
